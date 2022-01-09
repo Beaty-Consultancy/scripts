@@ -9,7 +9,7 @@
 #######################################
 
 # Add yama's public key
-adduser yama --gecos "yama Beaty,NA,NA,NA" --disabled-password
+adduser yama --gecos "yama Hakimi,NA,NA,NA" --disabled-password
 su -c 'mkdir /home/yama/.ssh' yama 
 su -c 'chmod 700 /home/yama/.ssh' yama
 su -c 'touch /home/yama/.ssh/authorized_keys' yama
