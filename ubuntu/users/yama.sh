@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# File Name:    plesk-build.sh
+# File Name:    yama.sh
 # Description:  Add a yama user with his public keyu for Amazon Linux 2 boxes
 # Version:      1
 # Author:       Ricky Beaty

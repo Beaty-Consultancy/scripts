@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# File Name:    plesk-build.sh
+# File Name:    ricky.sh
 # Description:  Add a ricky user with his public keyu for Amazon Linux 2 boxes
 # Version:      1
 # Author:       Ricky Beaty
