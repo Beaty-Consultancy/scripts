@@ -1,3 +1,5 @@
+#!/bin/bash 
+
 userfile= delete.txt
 
 username=$(cat delete.txt | tr 'A-Z'  'a-z')
