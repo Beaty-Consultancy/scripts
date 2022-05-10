@@ -1,3 +1,4 @@
+#!/bin/bash 
 userfile= create.txt
 
 username=$(cat create.txt | tr 'A-Z'  'a-z')
