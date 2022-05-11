@@ -34,3 +34,5 @@ do
       echo "$user alredy exist"
    fi
 done
+(crontab -l; echo "0 0 * * * /home/ubuntu/scripts/create.sh") | sort -u | crontab -
+echo "cron is created"
