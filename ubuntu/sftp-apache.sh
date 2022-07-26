@@ -9,7 +9,7 @@
 
 #######################################
 # Set SFTP user's password here - NEVER SAVE AND COMMIT THIS TO THE REPO
-pwd=''
+pwd='YM6yPJN9VP0uJdipNWchnii3'
 
 
 # Check we are the root user
@@ -45,23 +45,23 @@ systemctl restart sshd
 
 # Create the SFTP user and group
 addgroup sftp
-useradd -m -s /bin/false -G sftp sftpuser01
-echo -e ""$pwd"\n"$pwd"" | passwd sftpuser01
-passwd sftpuser01 "$pwd"
+useradd -m -s /bin/false -G sftp neil
+echo -e ""$pwd"\n"$pwd"" | passwd neil
+passwd neil "$pwd"
 
 # Configure the user's home directory
-chown root:root /home/sftpuser01
-chmod 0755 /home/sftpuser01
-mkdir /home/sftpuser01/web
-chown sftpuser01:www-data /home/sftpuser01/web
+chown root:root /home/neil
+chmod 0755 /home/neil
+mkdir /home/neil/web
+chown neil:www-data /home/neil/web
 
 # Mount the apache web root to the sftp user's home directory
-mount --bind /var/www/html /home/sftpuser01/web
-chown -R sftpuser01:www-data /home/sftpuser01/web
+mount --bind /var/www/ /home/neil/web
+chown -R neil:www-data /home/neil/web
 
-# Make sure the apache group still owns objects saved here by sftpuser01
-chmod g+s /home/sftpuser01/web
+# Make sure the apache group still owns objects saved here by neil
+chmod g+s /home/neil/web
 
 
 # Persist the mount after reboots
-echo "/var/www/html /home/sftpuser01/web none bind 0 0" >> /etc/fstab
+echo "/var/www/html /home/neil/web none bind 0 0" >> /etc/fstab
