@@ -14,6 +14,6 @@ usermod -aG wheel ricky
 su -c 'mkdir /home/ricky/.ssh' ricky 
 su -c 'chmod 700 /home/ricky/.ssh' ricky
 su -c 'touch /home/ricky/.ssh/authorized_keys' ricky
-curl https://bc-public.s3.eu-west-2.amazonaws.com/ricky.pub >> /home/ricky/.ssh/authorized_keys
+curl https://github.com/beatyconsultancy.keys >> /home/ricky/.ssh/authorized_keys
 chmod 600 /home/ricky/.ssh/authorized_keys
 echo "ricky ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/90-cloud-init-users
