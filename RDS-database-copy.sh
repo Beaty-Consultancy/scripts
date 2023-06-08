@@ -18,7 +18,7 @@ database= # The MySQL database to export
 filename="${database}.sql"
 zipfile="${database}.zip"
 
-mysqldump -u $username -h $RDShost -p$password --lock-tables=false $database > $filename
+mysqldump --column-statistics=0 -u $username -h $RDShost -p$password --lock-tables=false $database > $filename
 
 # Remove junk that RDS doesn't like
 awk '!/@@/' $filename > temp && mv temp $filename
