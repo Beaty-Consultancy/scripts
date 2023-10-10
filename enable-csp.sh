@@ -19,7 +19,7 @@ config_file_http="/etc/httpd/conf/httpd.conf"
 temp_content_file_https="/tmp/content_to_append_https.conf"
 touch "$temp_content_file_https"
 
-temp_content_file_http="/tmp/content_to_append_https.conf"
+temp_content_file_http="/tmp/content_to_append_http.conf"
 touch "$temp_content_file_http"
 
 # Define the content to be appended
@@ -27,7 +27,7 @@ cat << 'EOL' > "$temp_content_file_https"
 # Strict-Transport-Security Header
 Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 # Content Security Policy Header
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src * 'self' data: https:; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123' 'unsafe-inline' http: https:; require-trusted-types-for 'script';"
+Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' data: https:; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123' 'unsafe-inline' http: https:; require-trusted-types-for 'script'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self';"
 # Anti-clickjacking Header
 Header always set X-Frame-Options "SAMEORIGIN"
 # X-Content-Type-Options Header
@@ -55,7 +55,7 @@ EOL
 
 cat << 'EOL' > "$temp_content_file_http"
 # Content Security Policy Header
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src * 'self' data: https:; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123' 'unsafe-inline' http: https:; require-trusted-types-for 'script';"
+Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' data: https:; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123' 'unsafe-inline' http: https:; require-trusted-types-for 'script'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self';"
 # Anti-clickjacking Header
 Header always set X-Frame-Options "SAMEORIGIN"
 # X-Content-Type-Options Header
