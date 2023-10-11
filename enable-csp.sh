@@ -26,31 +26,38 @@ touch "$temp_content_file_http"
 cat << 'EOL' > "$temp_content_file_https"
 # Strict-Transport-Security Header
 Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+
 # Content Security Policy Header
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' data: https:; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123' 'unsafe-inline' http: https:; require-trusted-types-for 'script'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self';"
+Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' https://api.changemyface.com; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123'; require-trusted-types-for 'script'; connect-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
+
 # Anti-clickjacking Header
 Header always set X-Frame-Options "SAMEORIGIN"
+
 # X-Content-Type-Options Header
 Header always set X-Content-Type-Options "nosniff"
 
-# SSL Config
+#Cache control Header
+Header set Cache-Control "no-cache, no-store, must-revalidate"
+
+
+#SSL Config
 SSLEngine on
-SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
-SSLCipherSuite HIGH:!aNULL:!MD5
+SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+SSLCipherSuite ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
 SSLHonorCipherOrder on
 SSLCompression off
+SSLCipherSuite HIGH:!aNULL:!MD5:!3DES:!CAMELLIA:!AES128
 
 # HTTP debugging methods configuration
 TraceEnable off
 
-# SCM deny config
-RedirectMatch 404 /\.(svn|git|hg|bzr|CSV)(/|$)
+#SCM deny config
+RedirectMatch 404 /\.(svn|git|hg|bzr|csv)(/|$)
 
-<Location /robots.txt>
-RewriteEngine On
-RewriteCond %{REQUEST_URI} "^/robots.txt" [NC]
-RewriteRule "^.*$" - [F,L]
-</Location>
+<Directory /var/www/html/>
+Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' https://api.changemyface.com; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123'; require-trusted-types-for 'script'; connect-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
+</Directory>
+
 EOL
 
 cat << 'EOL' > "$temp_content_file_http"
@@ -67,11 +74,9 @@ TraceEnable off
 # SCM deny config
 RedirectMatch 404 /\.(svn|git|hg|bzr|CSV)(/|$)
 
-<Location /robots.txt>
 RewriteEngine On
-RewriteCond %{REQUEST_URI} "^/robots.txt" [NC]
-RewriteRule "^.*$" - [F,L]
-</Location>
+RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
+RewriteRule .* - [F]
 EOL
 
 # Use awk to locate <VirtualHost *:443> block and append content
