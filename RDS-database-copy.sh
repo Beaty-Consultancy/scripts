@@ -2,13 +2,16 @@
 
 # File Name:    RDS-database-copy.sh
 # Description:  MySQL dump a database from an RDS service and clean up the file so it can be imported into another RDS service.
-# Version:      1
+# Version:      2
 # Author:       Ricky Beaty
-# Date:         29/05/2023
-# Prerequisites Install MySQL client if it isn't already in plcase.
-#               sudo apt install mysql-client
+# Date:         23/10/2023
+# Changelog:    Updated to include MySQL CLI tools install for Amazon Linux 2023
 
 #######################################
+
+# Install MySQL tools onto Amazon Linux 2023 instance
+sudo dnf install mariadb105         # Amazon Linux 2023
+sudo yum install mariadb            # Amazon Linux 2
 
 username= # RDS username
 RDShost= # RDS endpoint
@@ -18,7 +21,7 @@ database= # The MySQL database to export
 filename="${database}.sql"
 zipfile="${database}.zip"
 
-mysqldump --column-statistics=0 -u $username -h $RDShost -p$password --lock-tables=false $database > $filename
+mysqldump -u $username -h $RDShost -p$password --lock-tables=false $database > $filename
 
 # Remove junk that RDS doesn't like
 awk '!/@@/' $filename > temp && mv temp $filename
