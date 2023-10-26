@@ -24,11 +24,12 @@ touch "$temp_content_file_http"
 
 # Define the content to be appended
 cat << 'EOL' > "$temp_content_file_https"
+
 # Strict-Transport-Security Header
 Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 
 # Content Security Policy Header
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' https://api.changemyface.com; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123'; require-trusted-types-for 'script'; connect-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
+Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self'; object-src 'none'; script-src 'self' https://dev.changemyface.com; require-trusted-types-for 'script'; connect-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
 
 # Anti-clickjacking Header
 Header always set X-Frame-Options "SAMEORIGIN"
@@ -43,40 +44,30 @@ Header set Cache-Control "no-cache, no-store, must-revalidate"
 #SSL Config
 SSLEngine on
 SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
-SSLCipherSuite ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
+SSLCipherSuite EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH:ECDHE-RSA-AES128-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA128:DHE-RSA-AES128-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES128-GCM-SHA128:ECDHE-RSA-AES128-SHA384:ECDHE-RSA-AES128-SHA128:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES128-SHA:DHE-RSA-AES128-SHA128:DHE-RSA-AES128-SHA128:DHE-RSA-AES128-SHA:DHE-RSA-AES128-SHA:ECDHE-RSA-DES-CBC3-SHA:EDH-RSA-DES-CBC3-SHA:AES128-GCM-SHA384:AES128-GCM-SHA128:AES128-SHA128:AES128-SHA128:AES128-SHA:AES128-SHA:DES-CBC3-SHA:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4:!3DES
 SSLHonorCipherOrder on
 SSLCompression off
-SSLCipherSuite HIGH:!aNULL:!MD5:!3DES:!CAMELLIA:!AES128
 
 # HTTP debugging methods configuration
-TraceEnable off
+RewriteEngine On
+RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
+RewriteRule .* - [F]
 
 #SCM deny config
 RedirectMatch 404 /\.(svn|git|hg|bzr|csv)(/|$)
 
-<Directory /var/www/html/>
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' https://api.changemyface.com; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123'; require-trusted-types-for 'script'; connect-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
-</Directory>
+SSLCertificateFile /etc/letsencrypt/live/dev.changemyface.com/fullchain.pem
+SSLCertificateKeyFile /etc/letsencrypt/live/dev.changemyface.com/privkey.pem
 
 EOL
 
 cat << 'EOL' > "$temp_content_file_http"
-# Content Security Policy Header
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self' data: https:; object-src 'none'; script-src 'strict-dynamic' 'nonce-rAnd0m123' 'unsafe-inline' http: https:; require-trusted-types-for 'script'; connect-src 'self'; img-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self';"
-# Anti-clickjacking Header
-Header always set X-Frame-Options "SAMEORIGIN"
-# X-Content-Type-Options Header
-Header always set X-Content-Type-Options "nosniff"
 
 # HTTP debugging methods configuration
-TraceEnable off
-
-# SCM deny config
-RedirectMatch 404 /\.(svn|git|hg|bzr|CSV)(/|$)
-
 RewriteEngine On
 RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
 RewriteRule .* - [F]
+
 EOL
 
 # Use awk to locate <VirtualHost *:443> block and append content

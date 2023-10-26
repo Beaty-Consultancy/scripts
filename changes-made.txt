@@ -1,0 +1,35 @@
+## Changes Made
+
+This code has been modified to include the following changes:
+
+- Implemented 'enable-csp.sh' to enable Content Security Policy (CSP) in `httpd`.
+- Changed the log reporting module in `httpd` from `prefork` to `events`.
+- Set `net.ipv4.tcp_timestamps=0` in `/etc/sysctl.conf` to improve network security.
+
+
+Please refer to the code comments for more information on the changes made.
+
+Changes made in Directory: /etc/httpd/
+
+Disable LoadModule info_module modules/mod_info.so in /etc/httpd/conf.modules.d/00-base.conf by commenting out the line.
+
+Changes made to /etc/httpd/conf.d/ssl.conf:
+- SSLProtocol all -SSLv2 -SSLv3 -TLSv1 -TLSv1.1
+- SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5:!SEED:!IDEA:EECDH:EDH:!NULL:!SSLv2:!RC4:!3DES
+- SSLCertificateFile /etc/letsencrypt/live/dev.changemyface.com/fullchain.pem
+- SSLCertificateKeyFile /etc/letsencrypt/live/dev.changemyface.com/privkey.pem
+
+Changes made to /etc/httpd/conf.modules.d/00-ssl.conf:
+- RedirectMatch 404 /\.(svn|git|hg|bzr|csv)(/|$)
+
+Add the following content to /var/www/html/:
+
+- /var/www/html/api/images/cmflogo.png
+- /var/www/html/favicon.ico
+- /var/www/html/robots.txt
+- /var/www/html/sitemap.xml
+- /var/www/html/.htaccess
+
+.htaccess:
+# Disallow access to SCM files
+RedirectMatch 404 /\.(svn|git|hg|bzr|csv)/
