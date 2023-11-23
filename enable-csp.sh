@@ -29,7 +29,7 @@ cat << 'EOL' > "$temp_content_file_https"
 Header always set Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 
 # Content Security Policy Header
-Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self'; object-src 'none'; script-src 'self' https://dev.changemyface.com; require-trusted-types-for 'script'; connect-src 'self'; style-src 'self'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
+Header add Content-Security-Policy "base-uri 'none'; default-src 'self'; img-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' https://api.changemyface.com; require-trusted-types-for 'script'; connect-src 'self' https://ka-f.fontawesome.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; form-action 'self'; worker-src 'none';"
 
 # Anti-clickjacking Header
 Header always set X-Frame-Options "SAMEORIGIN"
