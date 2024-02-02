@@ -19,8 +19,8 @@ RUN export PATH=$PATH:/usr/local/bin/tofu
 
 WORKDIR /
 
-COPY gitlab-tofu.sh /usr/bin/gitlab-tofu
-RUN chmod +x /usr/bin/gitlab-tofu
+COPY ghb-tofu.sh /usr/bin/ghb-tofu
+RUN chmod +x /usr/bin/ghb-tofu
 
 # Override ENTRYPOINT since hashicorp/terraform uses `terraform`
 ENTRYPOINT []
