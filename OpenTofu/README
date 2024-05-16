@@ -1,0 +1,33 @@
+ghb-tofu Container Build
+
+To build the container image with less size we first need to ensure Docker is installed on the system. If not installed, you can install it using the script on Docker GitHub which is as below:
+
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+
+After ensuring that docker is installed, ensure that go is also installed on the machine. If not, it can be installed following the steps below:
+
+# These steps are for Linux
+wget https://go.dev/dl/go1.22.3.linux-amd64.tar.gz
+rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.3.linux-amd64.tar.gz
+export PATH=$PATH:/usr/local/go/bin
+go version
+
+# After installing the pre-requisites, follow the steps below:
+
+git clone https://github.com/opentofu/opentofu.git
+cd opentofu/cmd/tofu && go build .
+
+# Copy ghb-tofu.Dockerfile and ghb-tofu.sh to opentofu/cmd/tofu
+
+Now build the image using the command below:
+
+docker build -f ghb-tofu.Dockerfile -t ghb-tofu:latest .
+docker build -f ghb-tofu.Dockerfile -t ghb-tofu:{tofu-version} .
+
+After build is complete, tag the image:
+
+docker tag ghb-tofu:latest public.ecr.aws/c3w2w7c4/ghb-tofu:latest
+
+And finally, push the image after authenticating your user with your credentials:
+docker push public.ecr.aws/c3w2w7c4/ghb-tofu:latest
