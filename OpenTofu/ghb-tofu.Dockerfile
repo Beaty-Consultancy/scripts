@@ -1,14 +1,21 @@
-FROM golang:alpine
+FROM golang:latest
 
 LABEL maintainer="Ahmed <ahmed@beatyconsultancy.co.uk>"
 
-RUN apk add --no-cache \
+RUN apt update && apt install \
   curl \
-  gcompat \
   git \
-  idn2-utils \
   jq \
-  openssh
+  unzip
+
+# Install AWS CLI
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install
+
+# Clean up
+RUN rm awscliv2.zip && \
+    rm -rf aws
 
 COPY tofu /usr/local/bin/tofu
 
