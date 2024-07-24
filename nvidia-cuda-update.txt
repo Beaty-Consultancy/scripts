@@ -34,3 +34,5 @@ References:
 
 https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/install-nvidia-driver.html#:~:text=EC2%20instances.-,Option%203%3A%20GRID%20drivers%20(G6%2C%20Gr6%2C%20G5%2C%20G4dn%2C%20and%20G3%20instances),-These%20downloads%20are
 https://rocketcompute-com.medium.com/yet-another-guide-on-how-to-install-nvidia-drivers-on-linux-fd72c6cc38f6
+
+AMI tested on in Princeton Account: ami-0877fa777f1cde535
