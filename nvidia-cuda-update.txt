@@ -1,0 +1,31 @@
+To install the NVIDIA driver on your instance;
+
+1. Connect to your Linux instance.
+2. Install the AWS CLI on your Linux instance and configure default credentials.
+Important
+Your user or role must have the permissions granted that contains the AmazonS3ReadOnlyAccess policy
+3. Install gcc and make, if they are not already installed.
+sudo yum install gcc make
+4. Update your package cache and get the package updates for your instance.
+sudo yum update -y
+5. Reboot your instance to load the latest kernel version.
+sudo reboot
+6. Reconnect to your instance after it has rebooted.
+7. Install the gcc compiler and the kernel headers package for the version of the kernel you are currently running.
+sudo yum install -y gcc kernel-devel-$(uname -r)
+8. Download the GRID driver installation utility using the following command:
+aws s3 cp --recursive s3://ec2-linux-nvidia-drivers/latest/ .
+9. Add permissions to run the driver installation utility using the following command.
+chmod +x NVIDIA-Linux-x86_64*.run
+10. Run the self-install script as follows to install the GRID driver that you downloaded. For example:
+chmod +x NVIDIA-Linux-x86_64*.run
+Note
+If you are using Amazon Linux 2 with kernel version 5.10, use the following command to install the GRID driver.
+sudo CC=/usr/bin/gcc10-cc ./NVIDIA-Linux-x86_64*.run
+11. Confirm that the driver is functional. The response for the following command lists the installed version of the NVIDIA driver and details about the GPUs.
+nvidia-smi -q | head
+12. Reboot the instance.
+sudo reboot
+
+13. After the instance reboots, reconnect to your instance and confirm that the NVIDIA driver is installed and functional.
+nvidia-smi
