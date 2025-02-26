@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # File Name:    setup-awsmfa.sh
-# Description:  Sets up the awsmfa script to easily refresh AWS session credentials
+# Description:  Sets up the awsmfa script to easily refresh AWS session credentials.
+#               Assumptions: The default aws profile is the one used to issue the aws sts get-session-token command.
 # Version:      1
 # Author:       Ricky Beaty
 # Date:         25/02/25
