@@ -142,9 +142,11 @@ class RDSStorageMonitor:
     
     def analyze_provisioned_storage(self, instance: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze provisioned storage details"""
+        allocated_storage = instance.get('AllocatedStorage', 0)  # Move this line up
+        
         storage_info = {
             "storage_type": instance.get('StorageType', 'Unknown'),
-            "allocated_storage_gb": instance.get('AllocatedStorage', 0),
+            "allocated_storage_gb": allocated_storage,
             "provisioned_iops": None,
             "iops_ratio": None,
             "storage_throughput": None
@@ -153,7 +155,6 @@ class RDSStorageMonitor:
         # Get IOPS information
         if instance.get('Iops'):
             storage_info["provisioned_iops"] = instance.get('Iops')
-            allocated_storage = instance.get('AllocatedStorage', 0)
             if allocated_storage > 0:
                 storage_info["iops_ratio"] = instance.get('Iops') / allocated_storage
         
