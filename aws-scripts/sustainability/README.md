@@ -176,8 +176,8 @@ python3 check_rds_storage.py --format json --days 14
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd aws-scripts
+git clone https://github.com/Beaty-Consultancy/scripts.git
+cd aws-scripts/sustainability
 ```
 
 2. Install dependencies:
