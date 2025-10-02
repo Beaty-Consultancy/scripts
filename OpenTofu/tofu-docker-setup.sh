@@ -25,7 +25,14 @@ LATEST_VERSION=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases
 # Download and extract the source code
 wget https://github.com/opentofu/opentofu/archive/refs/tags/${LATEST_VERSION}.tar.gz
 tar -xzf ${LATEST_VERSION}.tar.gz
-cd opentofu-${LATEST_VERSION}/cmd/tofu
+
+# Get latest release version without "v" prefix
+LATEST_VERSION_NUMBER=$(curl -s https://api.github.com/repos/opentofu/opentofu/releases/latest \
+  | grep 'tag_name' \
+  | cut -d'"' -f4 \
+  | sed 's/^v//')
+
+cd opentofu-${LATEST_VERSION_NUMBER}/cmd/tofu
 
 # Build the Go project
 go build .
