@@ -1,289 +1,598 @@
 #!/usr/bin/env python3
-# filepath: /Users/syedmuhammadahmed/Downloads/repos/aws-scripts/check_idle_instances.py
+"""
+AWS Well-Architected Tool - Sustainability Pillar
+Check Idle EC2 Instances
+
+This script checks for EC2 instances that have been stopped for more than
+a specified number of days (default: 7 days), which may indicate resource waste
+and unnecessary costs.
+"""
 
 import boto3
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from botocore.exceptions import ClientError, ProfileNotFound
+from botocore.exceptions import ClientError, NoCredentialsError
 import sys
 
-def get_aws_regions():
-    """Get all AWS regions"""
-    try:
-        ec2 = boto3.client('ec2', region_name='eu-west-2')
-        regions = ec2.describe_regions()
-        return [region['RegionName'] for region in regions['Regions']]
-    except Exception as e:
-        print(f"Error getting regions: {e}")
-        return []
 
-def parse_stop_time(state_transition_reason):
-    """Parse stop time from StateTransitionReason with multiple patterns"""
+def get_available_regions():
+    """
+    Get all AWS regions where EC2 is available
+    
+    Returns:
+        list: List of AWS region names
+    """
+    try:
+        ec2_client = boto3.client('ec2', region_name='us-east-1')
+        response = ec2_client.describe_regions()
+        return [region['RegionName'] for region in response['Regions']]
+    except ClientError as e:
+        raise ClientError(e.response, e.operation_name) from e
+    except Exception as e:
+        raise RuntimeError(f"Failed to get AWS regions: {str(e)}") from e
+
+
+def parse_iso_format(time_str):
+    """Parse ISO format timestamps"""
+    if time_str.endswith('Z'):
+        if '.' in time_str:
+            return datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
+        else:
+            return datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
+    return None
+
+
+def parse_standard_format(time_str):
+    """Parse standard format timestamps"""
+    try:
+        return datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def extract_timestamp_from_reason(state_transition_reason):
+    """Extract timestamp string using regex patterns"""
+    patterns = [
+        r'\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) GMT\)',
+        r'\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\+00:00\)',
+        r'\((\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\)',
+        r'\((\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\)',
+        r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) GMT',
+        r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, state_transition_reason)
+        if match:
+            return match.group(1)
+    
+    return None
+
+
+def parse_instance_stop_time(state_transition_reason):
+    """
+    Parse stop time from StateTransitionReason field
+    
+    Args:
+        state_transition_reason: StateTransitionReason from EC2 instance
+        
+    Returns:
+        datetime: Parsed stop time or None if parsing fails
+    """
     if not state_transition_reason:
         return None
     
     try:
-        # Multiple patterns to catch different timestamp formats
-        patterns = [
-            r'\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) GMT\)',  # (2023-05-29 14:30:45 GMT)
-            r'\((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\+00:00\)',  # (2023-05-29 14:30:45+00:00)
-            r'\((\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\)',  # ISO format
-            r'\((\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\)',  # ISO format without milliseconds
-            r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) GMT',  # Without parentheses
-            r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)',  # ISO without parentheses
-        ]
+        time_str = extract_timestamp_from_reason(state_transition_reason)
+        if not time_str:
+            return None
         
-        for pattern in patterns:
-            match = re.search(pattern, state_transition_reason)
-            if match:
-                time_str = match.group(1)
-                
-                # Try different parsing formats
-                try:
-                    if 'T' in time_str:
-                        if time_str.endswith('Z'):
-                            if '.' in time_str:
-                                # ISO with milliseconds
-                                return datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc)
-                            else:
-                                # ISO without milliseconds
-                                return datetime.strptime(time_str, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)
-                    else:
-                        # Standard format
-                        return datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
-                except ValueError:
-                    continue
-    except Exception as e:
-        print(f"Debug: Error parsing timestamp '{state_transition_reason}': {e}")
+        # Try ISO format first
+        if 'T' in time_str:
+            result = parse_iso_format(time_str)
+            if result:
+                return result
+        else:
+            # Try standard format
+            result = parse_standard_format(time_str)
+            if result:
+                return result
+        
+        return None
+    except Exception:
+        return None
+
+
+def get_instance_name(instance):
+    """
+    Get instance name from tags
     
+    Args:
+        instance: EC2 instance dictionary
+        
+    Returns:
+        str: Instance name or 'N/A' if not found
+    """
+    if 'Tags' in instance:
+        for tag in instance['Tags']:
+            if tag['Key'] == 'Name':
+                return tag['Value']
+    return 'N/A'
+
+
+def calculate_days_stopped(stop_time):
+    """Calculate days since instance was stopped"""
+    if stop_time:
+        return (datetime.now(timezone.utc) - stop_time).days
     return None
 
-def check_idle_instances():
-    """Check for instances that have been stopped for more than 1 week"""
-    print("🔍 Checking for AWS EC2 instances that have been stopped for more than 1 week...")
-    print("=" * 70)
+
+def is_instance_idle(stop_time, idle_threshold):
+    """Check if instance is considered idle based on stop time"""
+    if stop_time:
+        return stop_time <= idle_threshold
+    return False
+
+
+def analyze_instance_idle_status(instance, region, idle_threshold_days):
+    """
+    Analyze instance for idle status
     
-    # Calculate cutoff date (1 week ago)
-    one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    print(f"Cutoff date: {one_week_ago.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    Args:
+        instance: EC2 instance dictionary
+        region: AWS region name
+        idle_threshold_days: Number of days to consider as idle threshold
+        
+    Returns:
+        dict: Instance analysis result
+    """
+    instance_id = instance['InstanceId']
+    instance_type = instance['InstanceType']
+    launch_time = instance['LaunchTime']
+    state = instance['State']['Name']
+    state_transition_reason = instance.get('StateTransitionReason', '')
+    instance_name = get_instance_name(instance)
     
-    idle_instances = []  # Instances stopped for more than 1 week
-    recent_stopped_instances = []  # Instances stopped for less than 1 week
-    total_instances_checked = 0
-    total_running_instances = 0
-    total_stopped_instances = 0
+    # Calculate idle threshold
+    idle_threshold = datetime.now(timezone.utc) - timedelta(days=idle_threshold_days)
     
-    regions = get_aws_regions()
-    if not regions:
-        print("❌ Could not retrieve AWS regions")
-        return
+    # Initialize result
+    result = {
+        'instance_id': instance_id,
+        'instance_name': instance_name,
+        'instance_type': instance_type,
+        'region': region,
+        'state': state,
+        'launch_time': launch_time.isoformat() if launch_time else None,
+        'state_transition_reason': state_transition_reason,
+        'is_idle': False,
+        'is_stopped': state == 'stopped',
+        'stopped_since': None,
+        'days_stopped': None,
+        'error': None
+    }
     
-    for region in regions:
+    # Analyze stopped instances
+    if state == 'stopped':
+        stop_time = parse_instance_stop_time(state_transition_reason)
+        
+        if stop_time:
+            result['stopped_since'] = stop_time.isoformat()
+            result['days_stopped'] = calculate_days_stopped(stop_time)
+            result['is_idle'] = is_instance_idle(stop_time, idle_threshold)
+        else:
+            # Fallback: use launch time if stop time cannot be parsed
+            result['stopped_since'] = launch_time.isoformat() if launch_time else None
+            result['days_stopped'] = calculate_days_stopped(launch_time) if launch_time else None
+            result['is_idle'] = is_instance_idle(launch_time, idle_threshold) if launch_time else False
+            result['error'] = 'Could not parse stop time from StateTransitionReason'
+    
+    return result
+
+
+def check_instances_in_region(region, idle_threshold_days):
+    """
+    Check instances in a specific region for idle status
+    
+    Args:
+        region: AWS region name
+        idle_threshold_days: Number of days to consider as idle threshold
+        
+    Returns:
+        list: List of instance analysis results
+    """
+    try:
+        ec2_client = boto3.client('ec2', region_name=region)
+        instances = []
+        
+        # Get all instances (excluding terminated)
+        paginator = ec2_client.get_paginator('describe_instances')
+        
+        for page in paginator.paginate(
+            Filters=[
+                {
+                    'Name': 'instance-state-name',
+                    'Values': ['pending', 'running', 'shutting-down', 'stopping', 'stopped']
+                }
+            ]
+        ):
+            for reservation in page.get('Reservations', []):
+                for instance in reservation.get('Instances', []):
+                    instance_analysis = analyze_instance_idle_status(
+                        instance, region, idle_threshold_days
+                    )
+                    instances.append(instance_analysis)
+        
+        return instances
+        
+    except ClientError as e:
+        error_msg = f"AWS API error in region {region}: {str(e)}"
+        return [{
+            'instance_id': 'Error',
+            'instance_name': 'Error',
+            'instance_type': 'Error',
+            'region': region,
+            'state': 'Error',
+            'launch_time': None,
+            'state_transition_reason': '',
+            'is_idle': False,
+            'is_stopped': False,
+            'stopped_since': None,
+            'days_stopped': None,
+            'error': error_msg
+        }]
+    except Exception as e:
+        error_msg = f"Unexpected error in region {region}: {str(e)}"
+        return [{
+            'instance_id': 'Error',
+            'instance_name': 'Error',
+            'instance_type': 'Error',
+            'region': region,
+            'state': 'Error',
+            'launch_time': None,
+            'state_transition_reason': '',
+            'is_idle': False,
+            'is_stopped': False,
+            'stopped_since': None,
+            'days_stopped': None,
+            'error': error_msg
+        }]
+
+
+def categorize_instances(all_instances):
+    """Categorize instances by their status"""
+    idle_instances = []
+    running_instances = []
+    stopped_instances = []
+    error_instances = []
+    
+    for instance in all_instances:
+        if instance.get('error'):
+            error_instances.append(instance)
+        elif instance['is_idle']:
+            idle_instances.append(instance)
+        elif instance['state'] == 'running':
+            running_instances.append(instance)
+        elif instance['is_stopped']:
+            stopped_instances.append(instance)
+    
+    return idle_instances, running_instances, stopped_instances, error_instances
+
+
+def check_idle_instances_all_regions(idle_threshold_days=7, regions=None):
+    """
+    Check for idle instances across all or specified AWS regions
+    
+    Args:
+        idle_threshold_days: Number of days to consider as idle threshold
+        regions: Specific regions to check (optional)
+        
+    Returns:
+        dict: Complete check results
+    """
+    try:
+        # Get regions to check
+        if regions:
+            target_regions = regions
+        else:
+            target_regions = get_available_regions()
+        
+        # Collect instances from all regions
+        all_instances = []
+        region_errors = []
+        
+        for region in target_regions:
+            try:
+                instances = check_instances_in_region(region, idle_threshold_days)
+                all_instances.extend(instances)
+            except Exception as e:
+                region_errors.append({
+                    'region': region,
+                    'error': str(e)
+                })
+        
+        # Categorize instances
+        idle_instances, running_instances, stopped_instances, error_instances = categorize_instances(all_instances)
+        
+        return {
+            'total_regions_checked': len(target_regions),
+            'total_instances': len(all_instances),
+            'idle_instances': len(idle_instances),
+            'running_instances': len(running_instances),
+            'stopped_instances': len(stopped_instances),
+            'error_instances': len(error_instances),
+            'idle_threshold_days': idle_threshold_days,
+            'instances': all_instances,
+            'non_compliant_items': idle_instances,
+            'running_items': running_instances,
+            'stopped_items': stopped_instances,
+            'error_items': error_instances,
+            'region_errors': region_errors,
+            'error': None
+        }
+        
+    except ClientError as e:
+        error_msg = f"AWS API error: {str(e)}"
+        return {
+            'total_regions_checked': 0,
+            'total_instances': 0,
+            'idle_instances': 0,
+            'running_instances': 0,
+            'stopped_instances': 0,
+            'error_instances': 0,
+            'idle_threshold_days': idle_threshold_days,
+            'instances': [],
+            'non_compliant_items': [],
+            'running_items': [],
+            'stopped_items': [],
+            'error_items': [],
+            'region_errors': [],
+            'error': error_msg
+        }
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        return {
+            'total_regions_checked': 0,
+            'total_instances': 0,
+            'idle_instances': 0,
+            'running_instances': 0,
+            'stopped_instances': 0,
+            'error_instances': 0,
+            'idle_threshold_days': idle_threshold_days,
+            'instances': [],
+            'non_compliant_items': [],
+            'running_items': [],
+            'stopped_items': [],
+            'error_items': [],
+            'region_errors': [],
+            'error': error_msg
+        }
+
+
+def determine_idle_status(stats):
+    """Determine overall idle instances status and message"""
+    total_instances = stats['total_instances']
+    idle_instances = stats['idle_instances']
+    error_instances = stats['error_instances']
+    threshold_days = stats['idle_threshold_days']
+    
+    if total_instances == 0:
+        status = 'Success'
+        message = 'No EC2 instances found in any region.'
+    elif idle_instances == 0 and error_instances == 0:
+        status = 'Success'
+        message = f'No instances have been stopped for more than {threshold_days} days out of {total_instances} total instances.'
+    elif idle_instances > 0 and error_instances == 0:
+        status = 'Warning'
+        message = f'Found {idle_instances} instances stopped for more than {threshold_days} days out of {total_instances} total instances.'
+    elif idle_instances == 0 and error_instances > 0:
+        status = 'Warning'
+        message = f'Could not determine idle status for {error_instances} instances out of {total_instances} total instances.'
+    else:
+        status = 'Warning'
+        message = f'Found {idle_instances} idle and {error_instances} error instances out of {total_instances} total instances.'
+    
+    return status, message
+
+
+def check_idle_instances(profile_name=None, idle_threshold_days=7, regions=None):
+    """
+    Main function to check for idle EC2 instances
+    
+    Args:
+        profile_name: AWS profile name (optional)
+        idle_threshold_days: Number of days to consider as idle threshold
+        regions: Specific regions to check (optional)
+        
+    Returns:
+        dict: Complete check results in JSON format
+    """
+    timestamp = datetime.now(timezone.utc).isoformat() + 'Z'
+    
+    try:
+        # Create session
+        session = boto3.Session(profile_name=profile_name)
+        
+        # Override the default client creation for this specific check
+        original_client = boto3.client
+        boto3.client = lambda service, **kwargs: session.client(service, **kwargs)
+        
         try:
-            ec2 = boto3.client('ec2', region_name=region)
-            
-            # Get all instances (excluding terminated)
-            response = ec2.describe_instances(
-                Filters=[
-                    {
-                        'Name': 'instance-state-name',
-                        'Values': ['pending', 'running', 'shutting-down', 'stopping', 'stopped']
-                    }
-                ]
-            )
-            
-            region_idle_instances = []
-            region_recent_stopped = []
-            region_total_instances = 0
-            region_running_instances = 0
-            region_stopped_instances = 0
-            
-            for reservation in response['Reservations']:
-                for instance in reservation['Instances']:
-                    region_total_instances += 1
-                    total_instances_checked += 1
-                    
-                    launch_time = instance['LaunchTime']
-                    state = instance['State']['Name']
-                    state_transition_reason = instance.get('StateTransitionReason', '')
-                    
-                    # Count instances by state
-                    if state == 'running':
-                        total_running_instances += 1
-                        region_running_instances += 1
-                    elif state == 'stopped':
-                        total_stopped_instances += 1
-                        region_stopped_instances += 1
-                    
-                    # Process all stopped instances
-                    if state == 'stopped':
-                        stop_time = parse_stop_time(state_transition_reason)
-                        
-                        stopped_since = None
-                        stop_reason = ""
-                        
-                        if stop_time:
-                            stopped_since = stop_time
-                            stop_reason = f"Stopped since {stop_time.strftime('%Y-%m-%d %H:%M:%S UTC')}"
-                        else:
-                            # Fallback: if we can't parse stop time, use launch time
-                            print(f"Debug: Could not parse stop time for {instance['InstanceId']}: '{state_transition_reason}'")
-                            stopped_since = launch_time
-                            stop_reason = f"Launched {launch_time.strftime('%Y-%m-%d %H:%M:%S UTC')} (stop time unknown)"
-                        
-                        instance_name = 'N/A'
-                        
-                        # Get instance name from tags
-                        if 'Tags' in instance:
-                            for tag in instance['Tags']:
-                                if tag['Key'] == 'Name':
-                                    instance_name = tag['Value']
-                                    break
-                        
-                        stopped_instance = {
-                            'InstanceId': instance['InstanceId'],
-                            'InstanceType': instance['InstanceType'],
-                            'LaunchTime': launch_time,
-                            'State': state,
-                            'Name': instance_name,
-                            'Region': region,
-                            'StoppedSince': stopped_since,
-                            'StopReason': stop_reason,
-                            'StateTransitionReason': state_transition_reason
-                        }
-                        
-                        # Categorize based on stop duration
-                        if stopped_since <= one_week_ago:
-                            # Stopped for more than 1 week
-                            region_idle_instances.append(stopped_instance)
-                            idle_instances.append(stopped_instance)
-                        else:
-                            # Stopped for less than 1 week
-                            region_recent_stopped.append(stopped_instance)
-                            recent_stopped_instances.append(stopped_instance)
-            
-            if region_total_instances > 0:
-                print(f"📍 Region: {region} - Total: {region_total_instances} instances")
-                print(f"   • Running: {region_running_instances}")
-                print(f"   • Stopped: {region_stopped_instances}")
-                print(f"   • Stopped > 1 week: {len(region_idle_instances)}")
-                print(f"   • Stopped < 1 week: {len(region_recent_stopped)}")
-                
-                # Show instances stopped for more than 1 week
-                if region_idle_instances:
-                    print("\n   🔴 Instances stopped for MORE than 1 week:")
-                    print("   " + "-" * 47)
-                    for instance in region_idle_instances:
-                        days_stopped = (datetime.now(timezone.utc) - instance['StoppedSince']).days
-                        
-                        print(f"   🖥️  Instance ID: {instance['InstanceId']}")
-                        print(f"      Name: {instance['Name']}")
-                        print(f"      Type: {instance['InstanceType']}")
-                        print(f"      {instance['StopReason']}")
-                        print(f"      Days Stopped: {days_stopped}")
-                        print(f"      State Transition: {instance['StateTransitionReason']}")
-                        print()
-                
-                # Show instances stopped for less than 1 week
-                if region_recent_stopped:
-                    print("   🟡 Instances stopped for LESS than 1 week:")
-                    print("   " + "-" * 47)
-                    for instance in region_recent_stopped:
-                        days_stopped = (datetime.now(timezone.utc) - instance['StoppedSince']).days
-                        
-                        print(f"   🖥️  Instance ID: {instance['InstanceId']}")
-                        print(f"      Name: {instance['Name']}")
-                        print(f"      Type: {instance['InstanceType']}")
-                        print(f"      {instance['StopReason']}")
-                        print(f"      Days Stopped: {days_stopped}")
-                        print(f"      State Transition: {instance['StateTransitionReason']}")
-                        print()
-                
-                if not region_idle_instances and not region_recent_stopped:
-                    print("   ✅ No stopped instances in this region")
-                print()
+            # Perform the idle instances check
+            result = check_idle_instances_all_regions(idle_threshold_days, regions)
+        finally:
+            # Restore original client function
+            boto3.client = original_client
         
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'UnauthorizedOperation':
-                print(f"⚠️  No access to region {region}")
-            else:
-                print(f"❌ Error checking region {region}: {e}")
-        except Exception as e:
-            print(f"❌ Unexpected error in region {region}: {e}")
+        # Determine overall status
+        stats = {
+            'total_instances': result['total_instances'],
+            'idle_instances': result['idle_instances'],
+            'error_instances': result['error_instances'],
+            'idle_threshold_days': result['idle_threshold_days']
+        }
+        
+        status, message = determine_idle_status(stats)
+        
+        # Build final result
+        final_result = {
+            'timestamp': timestamp,
+            'status': status,
+            'message': message,
+            'check_type': 'idle_ec2_instances',
+            'total_regions_checked': result['total_regions_checked'],
+            'total_instances': result['total_instances'],
+            'idle_instances': result['idle_instances'],
+            'running_instances': result['running_instances'],
+            'stopped_instances': result['stopped_instances'],
+            'error_instances': result['error_instances'],
+            'idle_threshold_days': result['idle_threshold_days'],
+            'instances': result['instances'],
+            'non_compliant_items': result['non_compliant_items']
+        }
+        
+        # Add error details if any
+        if result['error']:
+            final_result['error'] = result['error']
+        
+        if result['error_items']:
+            final_result['error_items'] = result['error_items']
+        
+        if result['region_errors']:
+            final_result['region_errors'] = result['region_errors']
+        
+        return final_result
+        
+    except NoCredentialsError:
+        return {
+            'timestamp': timestamp,
+            'status': 'Error',
+            'message': 'AWS credentials not found. Please configure your credentials.',
+            'check_type': 'idle_ec2_instances',
+            'total_regions_checked': 0,
+            'total_instances': 0,
+            'idle_instances': 0,
+            'running_instances': 0,
+            'stopped_instances': 0,
+            'error_instances': 0,
+            'idle_threshold_days': idle_threshold_days,
+            'instances': [],
+            'non_compliant_items': []
+        }
+    except Exception as e:
+        return {
+            'timestamp': timestamp,
+            'status': 'Error',
+            'message': f'Unexpected error: {str(e)}',
+            'check_type': 'idle_ec2_instances',
+            'total_regions_checked': 0,
+            'total_instances': 0,
+            'idle_instances': 0,
+            'running_instances': 0,
+            'stopped_instances': 0,
+            'error_instances': 0,
+            'idle_threshold_days': idle_threshold_days,
+            'instances': [],
+            'non_compliant_items': []
+        }
+
+
+def print_instance_details(instance, index):
+    """Print detailed information about an instance"""
+    print(f"\n{index}. Instance Details:")
+    print(f"   Instance ID: {instance['instance_id']}")
+    print(f"   Name: {instance['instance_name']}")
+    print(f"   Type: {instance['instance_type']}")
+    print(f"   Region: {instance['region']}")
+    print(f"   State: {instance['state']}")
+    print(f"   Launch Time: {instance['launch_time']}")
     
-    # Summary
-    print("=" * 70)
-    print(f"🔍 Total instances checked: {total_instances_checked}")
-    print(f"🟢 Total running instances: {total_running_instances}")
-    print(f"🔴 Total stopped instances: {total_stopped_instances}")
-    print(f"⏰ Stopped for more than 1 week: {len(idle_instances)}")
-    print(f"🕐 Stopped for less than 1 week: {len(recent_stopped_instances)}")
+    if instance['is_stopped']:
+        print(f"   Stopped Since: {instance['stopped_since']}")
+        print(f"   Days Stopped: {instance['days_stopped']}")
+        print(f"   Is Idle: {'Yes' if instance['is_idle'] else 'No'}")
     
-    if idle_instances:
-        print(f"\n📊 Found {len(idle_instances)} instances stopped for more than 1 week")
-        print("\n💡 Recommendations for long-stopped instances:")
-        print("   • Review if these stopped instances are still needed")
-        print("   • Terminate instances that are no longer required")
-        print("   • Consider creating AMIs before terminating if you might need them later")
-        print("   • Check for associated EBS volumes that might still incur costs")
-        print("   • Use AWS Cost Explorer to analyze storage costs")
-        
-        print(f"\n💰 Cost Impact:")
-        print(f"   • {len(idle_instances)} stopped instances may have associated EBS storage costs")
-        print(f"   • Review EBS volumes, snapshots, and other resources tied to these instances")
-        
-        # Group by region for better overview
-        regions_summary = {}
-        for instance in idle_instances:
-            region = instance['Region']
-            if region not in regions_summary:
-                regions_summary[region] = 0
-            regions_summary[region] += 1
-        
-        print(f"\n📈 Long-stopped instances breakdown by region:")
-        for region, count in sorted(regions_summary.items()):
-            print(f"   • {region}: {count} instances")
+    if instance.get('error'):
+        print(f"   Error: {instance['error']}")
+
+
+def print_basic_summary(result):
+    """Print basic summary information"""
+    print("\nIdle EC2 Instances Check")
+    print("=" * 50)
+    print(f"Status: {result['status']}")
+    print(f"Message: {result['message']}")
+    print(f"Total Regions Checked: {result['total_regions_checked']}")
+    print(f"Total Instances: {result['total_instances']}")
+    print(f"Idle Instances: {result['idle_instances']}")
+    print(f"Running Instances: {result['running_instances']}")
+    print(f"Stopped Instances: {result['stopped_instances']}")
+    print(f"Error Instances: {result['error_instances']}")
+    print(f"Idle Threshold: {result['idle_threshold_days']} days")
+
+
+def print_idle_instances(instances):
+    """Print details of idle instances"""
+    if instances:
+        print(f"\nIdle Instances ({len(instances)}):")
+        for i, instance in enumerate(instances, 1):
+            print_instance_details(instance, i)
+
+
+def print_error_instances(instances):
+    """Print details of instances with errors"""
+    if instances:
+        print(f"\nInstances with Errors ({len(instances)}):")
+        for i, instance in enumerate(instances, 1):
+            print_instance_details(instance, i)
+
+
+def print_summary_output(result):
+    """Print human-readable summary output"""
+    print_basic_summary(result)
     
-    if recent_stopped_instances:
-        print(f"\n📊 Found {len(recent_stopped_instances)} instances stopped for less than 1 week")
-        print("💡 These instances were recently stopped and may be intentionally paused")
-        
-        # Group recent stopped by region
-        recent_regions_summary = {}
-        for instance in recent_stopped_instances:
-            region = instance['Region']
-            if region not in recent_regions_summary:
-                recent_regions_summary[region] = 0
-            recent_regions_summary[region] += 1
-        
-        print(f"\n📈 Recently-stopped instances breakdown by region:")
-        for region, count in sorted(recent_regions_summary.items()):
-            print(f"   • {region}: {count} instances")
+    idle_instances = result.get('non_compliant_items', [])
+    print_idle_instances(idle_instances)
     
-    if not idle_instances and not recent_stopped_instances:
-        print("✅ No stopped instances found")
+    error_instances = result.get('error_items', [])
+    print_error_instances(error_instances)
+
 
 def main():
-    try:
-        # Check if AWS credentials are configured
-        sts = boto3.client('sts')
-        identity = sts.get_caller_identity()
-        print(f"🔐 Using AWS Account: {identity['Account']}")
-        print(f"👤 IAM User/Role: {identity['Arn']}")
-        print()
-        
-        check_idle_instances()
-        
-    except ProfileNotFound:
-        print("❌ AWS credentials not found. Please run 'aws configure' or set environment variables.")
+    """Main execution function."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Check for idle EC2 instances")
+    parser.add_argument('--profile', help='AWS profile name to use')
+    parser.add_argument('--output', choices=['json', 'summary'], default='json',
+                       help='Output format (json or summary)')
+    parser.add_argument('--threshold', type=int, default=7,
+                       help='Idle threshold in days (default: 7)')
+    parser.add_argument('--regions', nargs='+', help='Specific regions to check (default: all regions)')
+    
+    args = parser.parse_args()
+    
+    # Execute the check
+    result = check_idle_instances(
+        profile_name=args.profile,
+        idle_threshold_days=args.threshold,
+        regions=args.regions
+    )
+    
+    if args.output == 'json':
+        print(json.dumps(result, indent=2))
+    else:
+        print_summary_output(result)
+    
+    # Exit with appropriate code
+    if result['status'] == 'Error':
         sys.exit(1)
-    except ClientError as e:
-        print(f"❌ AWS API Error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-        sys.exit(1)
+    elif result['status'] == 'Warning':
+        sys.exit(0)  # Warning is not a failure for script execution
+    else:
+        sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
