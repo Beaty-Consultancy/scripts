@@ -7,7 +7,7 @@ Quick setup instructions for creating an isolated Python environment and running
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt  # add packages needed by the scripts you plan to run
+pip install -r requirements.txt
 ```
 
 ## 2. Run a script
