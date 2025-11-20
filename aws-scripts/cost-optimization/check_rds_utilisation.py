@@ -3,7 +3,8 @@
 RDS CPU Utilization Check Script
 
 This script checks RDS instances and Aurora clusters for CPU utilization
-across all AWS regions and flags instances with high CPU usage (>80%).
+across all AWS regions and flags instances with high CPU usage (>80%)
+and low CPU usage (<15% average with no spikes above 50%).
 
 Returns structured data for dashboard compatibility.
 """
@@ -12,6 +13,10 @@ import boto3
 import json
 from botocore.exceptions import ClientError, NoCredentialsError
 from datetime import datetime, timedelta
+
+HIGH_CPU_THRESHOLD = 80
+LOW_CPU_THRESHOLD = 15
+SPIKE_THRESHOLD = 50
 
 
 def check_rds_utilisation(profile_name=None):
@@ -38,8 +43,10 @@ def check_rds_utilisation(profile_name=None):
         regions = [region['RegionName'] for region in regions_response['Regions']]
         
         high_cpu_instances = []
+        low_cpu_instances = []
         total_instances = 0
         total_high_cpu = 0
+        total_low_cpu = 0
         
         # Check each region
         for region in regions:
@@ -61,41 +68,52 @@ def check_rds_utilisation(profile_name=None):
                     instance_id = instance['DBInstanceIdentifier']
                     
                     # Get CPU utilization for the last 24 hours
-                    cpu_utilization = get_cpu_utilization(
+                    cpu_stats = get_cpu_utilization(
                         cloudwatch_client, 
                         instance_id, 
                         'AWS/RDS'
                     )
                     
-                    if cpu_utilization is not None and cpu_utilization > 80:
-                        total_high_cpu += 1
+                    if cpu_stats is not None:
+                        avg_cpu = cpu_stats['average']
+                        max_cpu = cpu_stats['maximum']
+                        is_high = avg_cpu > HIGH_CPU_THRESHOLD
+                        is_low = avg_cpu < LOW_CPU_THRESHOLD and max_cpu < SPIKE_THRESHOLD
                         
-                        # Get instance tags
-                        tags = {}
-                        try:
-                            tags_response = rds_client.list_tags_for_resource(
-                                ResourceName=instance['DBInstanceArn']
-                            )
-                            tags = {tag['Key']: tag['Value'] for tag in tags_response['TagList']}
-                        except ClientError:
-                            pass
-                        
-                        instance_info = {
-                            'identifier': instance_id,
-                            'type': 'RDS Instance',
-                            'region': region,
-                            'engine': instance.get('Engine', 'Unknown'),
-                            'engine_version': instance.get('EngineVersion', 'Unknown'),
-                            'instance_class': instance.get('DBInstanceClass', 'Unknown'),
-                            'status': instance.get('DBInstanceStatus', 'Unknown'),
-                            'availability_zone': instance.get('AvailabilityZone', 'Unknown'),
-                            'multi_az': instance.get('MultiAZ', False),
-                            'cpu_utilization': round(cpu_utilization, 2),
-                            'tags': tags,
-                            'name': tags.get('Name', 'No Name')
-                        }
-                        
-                        high_cpu_instances.append(instance_info)
+                        if is_high or is_low:
+                            # Get instance tags
+                            tags = {}
+                            try:
+                                tags_response = rds_client.list_tags_for_resource(
+                                    ResourceName=instance['DBInstanceArn']
+                                )
+                                tags = {tag['Key']: tag['Value'] for tag in tags_response['TagList']}
+                            except ClientError:
+                                pass
+                            
+                            instance_info = {
+                                'identifier': instance_id,
+                                'type': 'RDS Instance',
+                                'region': region,
+                                'engine': instance.get('Engine', 'Unknown'),
+                                'engine_version': instance.get('EngineVersion', 'Unknown'),
+                                'instance_class': instance.get('DBInstanceClass', 'Unknown'),
+                                'status': instance.get('DBInstanceStatus', 'Unknown'),
+                                'availability_zone': instance.get('AvailabilityZone', 'Unknown'),
+                                'multi_az': instance.get('MultiAZ', False),
+                                'cpu_utilization': round(avg_cpu, 2),
+                                'cpu_peak': round(max_cpu, 2),
+                                'tags': tags,
+                                'name': tags.get('Name', 'No Name')
+                            }
+                            
+                            if is_high:
+                                total_high_cpu += 1
+                                high_cpu_instances.append(instance_info)
+                            
+                            if is_low:
+                                total_low_cpu += 1
+                                low_cpu_instances.append(instance_info)
                 
                 # Check Aurora cluster instances
                 for cluster in clusters:
@@ -107,41 +125,52 @@ def check_rds_utilisation(profile_name=None):
                             instance_id = member['DBInstanceIdentifier']
                             
                             # Get CPU utilization for Aurora instance
-                            cpu_utilization = get_cpu_utilization(
+                            cpu_stats = get_cpu_utilization(
                                 cloudwatch_client, 
                                 instance_id, 
                                 'AWS/RDS'
                             )
                             
-                            if cpu_utilization is not None and cpu_utilization > 80:
-                                total_high_cpu += 1
+                            if cpu_stats is not None:
+                                avg_cpu = cpu_stats['average']
+                                max_cpu = cpu_stats['maximum']
+                                is_high = avg_cpu > HIGH_CPU_THRESHOLD
+                                is_low = avg_cpu < LOW_CPU_THRESHOLD and max_cpu < SPIKE_THRESHOLD
                                 
-                                # Get cluster tags
-                                tags = {}
-                                try:
-                                    tags_response = rds_client.list_tags_for_resource(
-                                        ResourceName=cluster['DBClusterArn']
-                                    )
-                                    tags = {tag['Key']: tag['Value'] for tag in tags_response['TagList']}
-                                except ClientError:
-                                    pass
-                                
-                                cluster_info = {
-                                    'identifier': instance_id,
-                                    'type': 'Aurora Cluster Writer',
-                                    'region': region,
-                                    'engine': cluster.get('Engine', 'Unknown'),
-                                    'engine_version': cluster.get('EngineVersion', 'Unknown'),
-                                    'instance_class': 'Aurora Serverless' if cluster.get('EngineMode') == 'serverless' else 'Aurora',
-                                    'status': cluster.get('Status', 'Unknown'),
-                                    'availability_zones': cluster.get('AvailabilityZones', []),
-                                    'multi_az': len(cluster.get('AvailabilityZones', [])) > 1,
-                                    'cpu_utilization': round(cpu_utilization, 2),
-                                    'tags': tags,
-                                    'name': tags.get('Name', cluster.get('DBClusterIdentifier', 'No Name'))
-                                }
-                                
-                                high_cpu_instances.append(cluster_info)
+                                if is_high or is_low:
+                                    # Get cluster tags
+                                    tags = {}
+                                    try:
+                                        tags_response = rds_client.list_tags_for_resource(
+                                            ResourceName=cluster['DBClusterArn']
+                                        )
+                                        tags = {tag['Key']: tag['Value'] for tag in tags_response['TagList']}
+                                    except ClientError:
+                                        pass
+                                    
+                                    cluster_info = {
+                                        'identifier': instance_id,
+                                        'type': 'Aurora Cluster Writer',
+                                        'region': region,
+                                        'engine': cluster.get('Engine', 'Unknown'),
+                                        'engine_version': cluster.get('EngineVersion', 'Unknown'),
+                                        'instance_class': 'Aurora Serverless' if cluster.get('EngineMode') == 'serverless' else 'Aurora',
+                                        'status': cluster.get('Status', 'Unknown'),
+                                        'availability_zones': cluster.get('AvailabilityZones', []),
+                                        'multi_az': len(cluster.get('AvailabilityZones', [])) > 1,
+                                        'cpu_utilization': round(avg_cpu, 2),
+                                        'cpu_peak': round(max_cpu, 2),
+                                        'tags': tags,
+                                        'name': tags.get('Name', cluster.get('DBClusterIdentifier', 'No Name'))
+                                    }
+                                    
+                                    if is_high:
+                                        total_high_cpu += 1
+                                        high_cpu_instances.append(cluster_info)
+                                    
+                                    if is_low:
+                                        total_low_cpu += 1
+                                        low_cpu_instances.append(cluster_info)
                         
             except ClientError as e:
                 # Skip regions where we don't have access
@@ -151,12 +180,21 @@ def check_rds_utilisation(profile_name=None):
                     raise
         
         # Determine overall status
-        if total_high_cpu == 0:
+        if total_high_cpu == 0 and total_low_cpu == 0:
             status = 'Optimized'
-            message = 'All RDS instances and Aurora clusters have acceptable CPU utilization (<80%).'
+            message = 'All RDS instances and Aurora clusters have acceptable CPU utilization.'
         else:
             status = 'Warning'
-            message = f'{total_high_cpu} RDS instance(s) with high CPU utilization (>80%) found across all regions.'
+            message_parts = []
+            if total_high_cpu:
+                message_parts.append(
+                    f'{total_high_cpu} instance(s) with high CPU utilization (>{HIGH_CPU_THRESHOLD}%).'
+                )
+            if total_low_cpu:
+                message_parts.append(
+                    f'{total_low_cpu} instance(s) with low CPU utilization (<{LOW_CPU_THRESHOLD}% avg with peaks <{SPIKE_THRESHOLD}%).'
+                )
+            message = ' '.join(message_parts)
         
         # Create structured result
         result = {
@@ -166,8 +204,10 @@ def check_rds_utilisation(profile_name=None):
             'details': {
                 'total_instances': total_instances,
                 'total_high_cpu': total_high_cpu,
+                'total_low_cpu': total_low_cpu,
                 'regions_checked': len(regions),
-                'high_cpu_instances': high_cpu_instances
+                'high_cpu_instances': high_cpu_instances,
+                'low_cpu_instances': low_cpu_instances
             }
         }
         
@@ -182,8 +222,10 @@ def check_rds_utilisation(profile_name=None):
                 'error_type': 'NoCredentialsError',
                 'total_instances': 0,
                 'total_high_cpu': 0,
+                'total_low_cpu': 0,
                 'regions_checked': 0,
-                'high_cpu_instances': []
+                'high_cpu_instances': [],
+                'low_cpu_instances': []
             }
         }
         
@@ -201,8 +243,10 @@ def check_rds_utilisation(profile_name=None):
                 'error_message': error_message,
                 'total_instances': 0,
                 'total_high_cpu': 0,
+                'total_low_cpu': 0,
                 'regions_checked': 0,
-                'high_cpu_instances': []
+                'high_cpu_instances': [],
+                'low_cpu_instances': []
             }
         }
         
@@ -216,15 +260,17 @@ def check_rds_utilisation(profile_name=None):
                 'error_message': str(e),
                 'total_instances': 0,
                 'total_high_cpu': 0,
+                'total_low_cpu': 0,
                 'regions_checked': 0,
-                'high_cpu_instances': []
+                'high_cpu_instances': [],
+                'low_cpu_instances': []
             }
         }
 
 
 def get_cpu_utilization(cloudwatch_client, instance_id, namespace):
     """
-    Get average CPU utilization for an RDS instance over the last 24 hours
+    Get average and peak CPU utilization for an RDS instance over the last 24 hours
     
     Args:
         cloudwatch_client: CloudWatch client
@@ -232,7 +278,7 @@ def get_cpu_utilization(cloudwatch_client, instance_id, namespace):
         namespace (str): CloudWatch namespace
         
     Returns:
-        float: Average CPU utilization percentage, or None if no data
+        dict: {'average': float, 'maximum': float} or None if no data
     """
     try:
         end_time = datetime.now()
@@ -250,16 +296,16 @@ def get_cpu_utilization(cloudwatch_client, instance_id, namespace):
             StartTime=start_time,
             EndTime=end_time,
             Period=3600,  # 1 hour periods
-            Statistics=['Average']
+            Statistics=['Average', 'Maximum']
         )
         
         datapoints = response['Datapoints']
         if datapoints:
-            # Calculate average CPU utilization over the period
-            avg_cpu = sum(dp['Average'] for dp in datapoints) / len(datapoints)
-            return avg_cpu
-        else:
-            return None
+            avg_cpu = sum(dp.get('Average', 0) for dp in datapoints) / len(datapoints)
+            max_cpu = max(dp.get('Maximum', 0) for dp in datapoints)
+            return {'average': avg_cpu, 'maximum': max_cpu}
+        
+        return None
             
     except ClientError:
         return None
@@ -287,12 +333,24 @@ def main():
         print(f"Message: {result['message']}")
         print(f"Total RDS Instances: {result['details']['total_instances']}")
         print(f"High CPU Instances: {result['details']['total_high_cpu']}")
+        print(f"Low CPU Instances: {result['details']['total_low_cpu']}")
         print(f"Regions Checked: {result['details']['regions_checked']}")
         
         if result['details']['high_cpu_instances']:
             print("\nHigh CPU Utilization Instances:")
             for i, instance in enumerate(result['details']['high_cpu_instances'], 1):
-                print(f"  {i}. {instance['identifier']} ({instance['type']}) - {instance['cpu_utilization']}% CPU in {instance['region']}")
+                print(
+                    f"  {i}. {instance['identifier']} ({instance['type']}) - "
+                    f"{instance['cpu_utilization']}% avg / {instance['cpu_peak']}% peak CPU in {instance['region']}"
+                )
+        
+        if result['details']['low_cpu_instances']:
+            print("\nLow CPU Utilization Instances:")
+            for i, instance in enumerate(result['details']['low_cpu_instances'], 1):
+                print(
+                    f"  {i}. {instance['identifier']} ({instance['type']}) - "
+                    f"{instance['cpu_utilization']}% avg / {instance['cpu_peak']}% peak CPU in {instance['region']}"
+                )
 
 
 if __name__ == "__main__":
